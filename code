@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+import numpy as np
+import math
+from tf_transformations import euler_from_quaternion
+import time
+class ControlNode(Node):
+    def __init__(self):
+        super().__init__("control_node")
+        #tọa độ đích
+
+        #tọa độ mong muốn
+        self.new_leader_x = 2.0
+        self.new_leader_y = 1.5
+        self.new_leader = np.array([[self.new_leader_x], [self.new_leader_y]])
+        self.leader = np.zeros((2,1))
+        self.distance_1 = np.array([[0.4],[0.3]])
+
+        #thông số điều khiển
+        self.L = 0.5
+        self.Kp = 0.5
+        self.Ki = 0.01
+        self.Kd = 0.05
+        self.integral_err = np.zeros((2,1))
+        self.derivative = None
+        self.rotating_distance = np.zeros((2,1))
+        self.last_time = self.get_clock().now()
+        self.start_time = self.get_clock().now()
+        self.timer = self.create_timer(0.1, self.update_leader_position)
+      
+        #tạo publisher
+        self.odom_pub_1 = self.create_publisher(Twist, "/robot1/cmd_vel", 10)   
+        #tạo subscriber (xủ lý ở trong hàm callback_odom)
+       
+        self.odom_sub_1 = self.create_subscription(Odometry,"/robot1/odom", self.callback_odom_1, 10)
+                
+        
+    def update_leader_position (self):
+        current_time = self.get_clock().now()
+        duration = current_time - self.start_time 
+        t = duration.nanoseconds / 1e9
+
+        v_leader = 0.1
+        leader_x = self.new_leader_x + v_leader * t
+        leader_y = self.new_leader_y 
+        self.new_leader = np.array([[leader_x], [leader_y]])
+
+    """def callback_leader_odom (self, msg: Odometry):
+        leader_x = msg.pose.pose.position.x
+        leader_y = msg.pose.pose.position.y
+        self.leader = np.array([[leader_x],[leader_y]])
+
+        #xử lý khoảng cách khi leader xoay
+        q = msg.pose.pose.orientation
+        quaternion_list = [q.x, q.y, q.z, q.w]
+        roll, pitch, yaw = euler_from_quaternion(quaternion_list)
+        b1 = np.array([[math.cos(yaw)], [math.sin(yaw)]])
+        b2 = np.array([[-math.sin(yaw)], [math.cos(yaw)]])
+        B = np.hstack((b1, b2))
+        self.rotating_distance = B @ self.distance
+
+        self.is_leader_ready = True"""
+
+    #bản chất hàm callback_odom chạy trong vòng lặp liên tục nên những lệnh trong hàm sẽ được chạy lặp đi lặp lại
+    def callback_odom_1 (self, msg: Odometry):#vì callback_odom là hàm xủ lý cho subscriber->tin nhắn mà nó nhận sẽ là kiểu Odometry
+        #lệnh lấy tọa độ của robot
+        follower_x = msg.pose.pose.position.x
+        follower_y = msg.pose.pose.position.y
+        follower_1 = np.array([[follower_x], [follower_y]])
+
+        #sai số
+        h_des = self.new_leader - self.distance_1
+        e_1 = h_des - follower_1
+
+        #tính khoảng thời gian
+        now = self.get_clock().now()
+        duration = now - self.last_time
+        dt = duration.nanoseconds / 1e9
+
+        #tính tích phân
+        if dt > 0:
+            self.integral_err = self.integral_err + (e_1 * dt)
+            max_integral = 1.0  # tùy chỉnh theo hệ thống
+            self.integral_err = np.clip(self.integral_err, -max_integral, max_integral)
+           
+        #tính đạo hàm
+        e_dot = np.zeros((2,1))
+        if (dt > 0) and (self.derivative is not None) :
+            new_e = e_1 - self.derivative
+            e_dot = new_e/dt
+            
+
+        #lệnh in sai số hiện tại
+        self.get_logger().info(f"Robot1 --> e_x_1={e_1[0,0]:.3f} m, e_y_1={e_1[1,0]:.3f} m")
+
+        #xử lý góc xoay
+        q = msg.pose.pose.orientation
+        quaternion_list = [q.x,q.y,q.z,q.w]
+        roll, pitch, theta = euler_from_quaternion(quaternion_list)
+
+        u,r = self.control_law(theta, e_1, e_dot)
+
+        #ép kiểu tin nhắn cho publisher
+        cmd_vel = Twist()
+        #setup vận tốc+vận tốc góc cho robot
+        cmd_vel.linear.x = float(np.clip(u, -0.3, 0.3))
+        cmd_vel.angular.z = float(np.clip(r, -1.0, 1.0))
+        #publish 
+        self.odom_pub_1.publish(cmd_vel) 
+
+        #update lại số liệu tính toán
+        self.derivative = e_1
+        self.last_time = now
+        
+    def control_law(self, theta, e, e_dot):
+        b1 = np.array([[math.cos(theta)], [math.sin(theta)]])
+        b2 = np.array([[-math.sin(theta)], [math.cos(theta)]])
+        B = np.hstack((b1, self.L*b2))
+
+        control = np.linalg.inv(B) @ (self.Kp * e + self.Ki * self.integral_err + self.Kd * e_dot)
+        u = control[0, 0]
+        r = control[1, 0]
+        return u, r
+    
+def main(args=None):
+    rclpy.init(args=args)
+    node = ControlNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+
+if __name__ == "__main__":
+    main()
+
