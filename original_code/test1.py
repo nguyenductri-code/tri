@@ -17,7 +17,7 @@ class ControlNode(Node):
         self.leader = np.zeros((2,1))
         self.distance_1 = np.array([[0.0],[0.3]])
         self.t_turn_1 = 10.0
-        self.t_turn_2 = 20.0
+        self.t_turn_2 = 15.0
 
         #thông số điều khiển
         self.L = 0.1
@@ -29,7 +29,7 @@ class ControlNode(Node):
         self.rotating_distance_1 = np.zeros((2,1))
         self.last_time = self.get_clock().now()
         self.start_time = self.get_clock().now()
-        self.timer = self.create_timer(0.1, self.update_leader_position)
+        #self.timer = self.create_timer(0.1, self.update_leader_position)
       
         #tạo publisher
         self.odom_pub_1 = self.create_publisher(Twist, "/cmd_vel", 10)   
@@ -38,7 +38,7 @@ class ControlNode(Node):
         
     def update_leader_position (self):
         t = (self.get_clock().now()-self.start_time).nanoseconds / 1e9
-        v_leader = 0.06
+        v_leader = 0.1
         omega = 0.14
         R_turn = v_leader/omega
         if (t < self.t_turn_1):
@@ -81,11 +81,18 @@ class ControlNode(Node):
 
     #bản chất hàm callback_odom chạy trong vòng lặp liên tục nên những lệnh trong hàm sẽ được chạy lặp đi lặp lại
     def callback_odom_1 (self, msg: Odometry):#vì callback_odom là hàm xủ lý cho subscriber->tin nhắn mà nó nhận sẽ là kiểu Odometry
-        #lệnh lấy tọa độ của robot
-        follower_x = msg.pose.pose.position.x
-        follower_y = msg.pose.pose.position.y
-        follower_1 = np.array([[follower_x], [follower_y]])
+        
+        self.update_leader_position()
 
+        #lệnh lấy tọa độ của robot
+        follower_center = np.array([[msg.pose.pose.position.x], [msg.pose.pose.position.y]])
+
+        #xử lý góc xoay
+        q = msg.pose.pose.orientation
+        quaternion_list = [q.x,q.y,q.z,q.w]
+        roll, pitch, theta = euler_from_quaternion(quaternion_list)
+
+        follower_1 = follower_center + self.L*np.array([[math.cos(theta)], [math.sin(theta)]])
         #sai số
         h_des = self.new_leader - self.rotating_distance_1
         e_1 = h_des - follower_1
@@ -109,11 +116,6 @@ class ControlNode(Node):
 
         #lệnh in sai số hiện tại
         self.get_logger().info(f"Robot1 --> e_x_1={e_1[0,0]:.3f} m, e_y_1={e_1[1,0]:.3f} m")
-
-        #xử lý góc xoay
-        q = msg.pose.pose.orientation
-        quaternion_list = [q.x,q.y,q.z,q.w]
-        roll, pitch, theta = euler_from_quaternion(quaternion_list)
 
         u,r = self.control_law(theta, e_1, e_dot)
 
