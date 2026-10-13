@@ -63,22 +63,6 @@ class ControlNode(Node):
         B = np.hstack((b1, b2))
         self.rotating_distance_1 = B @ self.distance_1
 
-    """def callback_leader_odom (self, msg: Odometry):
-        leader_x = msg.pose.pose.position.x
-        leader_y = msg.pose.pose.position.y
-        self.leader = np.array([[leader_x],[leader_y]])
-
-        #xử lý khoảng cách khi leader xoay
-        q = msg.pose.pose.orientation
-        quaternion_list = [q.x, q.y, q.z, q.w]
-        roll, pitch, yaw = euler_from_quaternion(quaternion_list)
-        b1 = np.array([[math.cos(yaw)], [math.sin(yaw)]])
-        b2 = np.array([[-math.sin(yaw)], [math.cos(yaw)]])
-        B = np.hstack((b1, b2))
-        self.rotating_distance = B @ self.distance
-
-        self.is_leader_ready = True"""
-
     #bản chất hàm callback_odom chạy trong vòng lặp liên tục nên những lệnh trong hàm sẽ được chạy lặp đi lặp lại
     def callback_odom_1 (self, msg: Odometry):#vì callback_odom là hàm xủ lý cho subscriber->tin nhắn mà nó nhận sẽ là kiểu Odometry
         
