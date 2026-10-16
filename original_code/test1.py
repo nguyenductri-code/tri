@@ -16,19 +16,22 @@ class ControlNode(Node):
         self.new_leader = np.array([[self.new_leader_x], [self.new_leader_y]])
         self.leader = np.zeros((2,1))
         self.distance_1 = np.array([[0.0],[0.3]])
-        self.t_turn_1 = 10.0
-        self.t_turn_2 = 15.0
+        self.t_turn_1 = 5.0
+        self.t_turn_2 = 10.0
+        self.chi = np.array([[1.0],[0.0]])
 
         #thông số điều khiển
+        self.k_heading = 5.0
         self.L = 0.1
         self.Kp = 0.5
         self.Ki = 0.01
-        self.Kd = 0.05
+        self.Kd = 0.0
         self.integral_err = np.zeros((2,1))
         self.derivative = None
         self.rotating_distance_1 = np.zeros((2,1))
         self.last_time = self.get_clock().now()
         self.start_time = self.get_clock().now()
+        self.M = np.array([[0,-1],[1,0]])
         #self.timer = self.create_timer(0.1, self.update_leader_position)
       
         #tạo publisher
@@ -98,10 +101,15 @@ class ControlNode(Node):
             new_e = e_1 - self.derivative
             e_dot = new_e/dt
 
+        #ước lượng góc xoay
+        epsilon = self.chi + self.k_heading * follower_center
+        chi_dot = msg.twist.twist.angular.z * self.M @ epsilon - self.k_heading * msg.twist.twist.linear.x * epsilon
+        self.chi = self.chi + (chi_dot * dt)
+
         #lệnh in sai số hiện tại
         self.get_logger().info(f"Robot1 --> e_x_1={e_1[0,0]:.3f} m, e_y_1={e_1[1,0]:.3f} m")
 
-        u,r = self.control_law(theta, e_1, e_dot)
+        u,r = self.control_law(epsilon, e_1, e_dot)
 
         #ép kiểu tin nhắn cho publisher
         cmd_vel = Twist()
@@ -115,9 +123,9 @@ class ControlNode(Node):
         self.derivative = e_1
         self.last_time = now
         
-    def control_law(self, theta, e, e_dot):
-        b1 = np.array([[math.cos(theta)], [math.sin(theta)]])
-        b2 = np.array([[-math.sin(theta)], [math.cos(theta)]])
+    def control_law(self, epsilon, e, e_dot):
+        b1 = epsilon
+        b2 = self.M @ epsilon
         B = np.hstack((b1, self.L*b2))
 
         control = np.linalg.inv(B) @ (self.Kp * e + self.Ki * self.integral_err + self.Kd * e_dot)
