@@ -12,16 +12,18 @@ class ControlNode(Node):
         super().__init__("control_node")
         #đội hình mong muốn
         self.new_leader_x = 2.0
-        self.new_leader_y = 0.0
+        self.new_leader_y = 1.0
         self.new_leader = np.array([[self.new_leader_x], [self.new_leader_y]])
         self.leader = np.zeros((2,1))
-        self.distance_1 = np.array([[0.0],[0.3]])
+        self.distance_1 = np.array([[0.5],[0.3]]) #kcach dọc/kcach ngang so với leader
         self.t_turn_1 = 5.0
-        self.t_turn_2 = 10.0
+        self.t_turn_2 = 15.0
+
         self.chi = np.array([[1.0],[0.0]])
 
+
         #thông số điều khiển
-        self.k_heading = 5.0
+        self.k_heading = 3.0
         self.L = 0.1
         self.Kp = 0.5
         self.Ki = 0.01
@@ -41,7 +43,7 @@ class ControlNode(Node):
         
     def update_leader_position (self):
         t = (self.get_clock().now()-self.start_time).nanoseconds / 1e9
-        v_leader = 0.1
+        v_leader = 0.05
         omega = 0.14
         R_turn = v_leader/omega
         if (t < self.t_turn_1):
@@ -49,7 +51,6 @@ class ControlNode(Node):
             leader_x = self.new_leader_x + v_leader * t
             leader_y = self.new_leader_y
             self.new_leader = np.array([[leader_x], [leader_y]])
-            self.rotating_distance_1 = self.distance_1
         elif (t >= self.t_turn_1 and t < self.t_turn_2):
             yaw = omega * (t-self.t_turn_1)
             leader_x = self.new_leader_x + v_leader * self.t_turn_1 + R_turn * math.sin(yaw)
@@ -71,24 +72,29 @@ class ControlNode(Node):
         
         self.update_leader_position()
 
-        #lệnh lấy tọa độ của robot
-        follower_center = np.array([[msg.pose.pose.position.x], [msg.pose.pose.position.y]])
-
-        #xử lý góc xoay
-        q = msg.pose.pose.orientation
-        quaternion_list = [q.x,q.y,q.z,q.w]
-        roll, pitch, theta = euler_from_quaternion(quaternion_list)
-
-        follower_1 = follower_center + self.L*np.array([[math.cos(theta)], [math.sin(theta)]])
-        #sai số
-        h_des = self.new_leader - self.rotating_distance_1
-        e_1 = h_des - follower_1
-
         #tính khoảng thời gian
         now = self.get_clock().now()
         duration = now - self.last_time
         dt = duration.nanoseconds / 1e9
+        
+        #lệnh lấy tọa độ của robot
+        follower_center = np.array([[msg.pose.pose.position.x], [msg.pose.pose.position.y]])
 
+        #xử lý góc xoay
+        '''q = msg.pose.pose.orientation
+        quaternion_list = [q.x,q.y,q.z,q.w]
+        roll, pitch, theta = euler_from_quaternion(quaternion_list)'''
+
+        #ước lượng góc xoay
+        epsilon = self.chi + self.k_heading * follower_center
+        chi_dot = msg.twist.twist.angular.z * self.M @ epsilon - self.k_heading * msg.twist.twist.linear.x * epsilon
+        self.chi = self.chi + (chi_dot * dt)
+        
+        follower_1 = follower_center + self.L*epsilon
+        #sai số
+        h_des = self.new_leader - self.rotating_distance_1
+        e_1 = h_des - follower_1
+        
         #tính tích phân
         if dt > 0:
             self.integral_err = self.integral_err + (e_1 * dt)
@@ -100,11 +106,6 @@ class ControlNode(Node):
         if (dt > 0) and (self.derivative is not None) :
             new_e = e_1 - self.derivative
             e_dot = new_e/dt
-
-        #ước lượng góc xoay
-        epsilon = self.chi + self.k_heading * follower_center
-        chi_dot = msg.twist.twist.angular.z * self.M @ epsilon - self.k_heading * msg.twist.twist.linear.x * epsilon
-        self.chi = self.chi + (chi_dot * dt)
 
         #lệnh in sai số hiện tại
         self.get_logger().info(f"Robot1 --> e_x_1={e_1[0,0]:.3f} m, e_y_1={e_1[1,0]:.3f} m")
