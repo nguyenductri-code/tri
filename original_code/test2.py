@@ -30,7 +30,7 @@ class ControlNode(Node):
         self.rotating_distance = np.zeros((2,1))
         self.last_time = self.get_clock().now()
         self.start_time = self.get_clock().now()
-        #self.timer = self.create_timer(0.1, self.update_leader_position)
+        
       
         #tạo publisher
         self.odom_pub_1 = self.create_publisher(Twist, "/robot1/cmd_vel", 10)   
@@ -39,7 +39,8 @@ class ControlNode(Node):
        
         self.odom_sub_1 = self.create_subscription(Odometry,"/robot1/odom", self.callback_odom_1, 10)
         self.odom_sub_2 = self.create_subscription(Odometry,"/robot2/odom", self.callback_odom_2, 10)
-                
+
+        self.timer = self.create_timer(0.1, self.update_leader_position)
         
     def update_leader_position (self):
         current_time = self.get_clock().now()
@@ -53,8 +54,6 @@ class ControlNode(Node):
         
     #bản chất hàm callback_odom chạy trong vòng lặp liên tục nên những lệnh trong hàm sẽ được chạy lặp đi lặp lại
     def callback_odom_1 (self, msg: Odometry):#vì callback_odom là hàm xủ lý cho subscriber->tin nhắn mà nó nhận sẽ là kiểu Odometry
-        
-        self.update_leader_position()
 
         #lệnh lấy tọa độ của robot
         follower_x = msg.pose.pose.position.x
@@ -96,7 +95,7 @@ class ControlNode(Node):
         #ép kiểu tin nhắn cho publisher
         cmd_vel = Twist()
         #setup vận tốc+vận tốc góc cho robot
-        cmd_vel.linear.x = float(np.clip(u, -0.3, 0.3))
+        cmd_vel.linear.x = float(np.clip(u, -0.2, 0.2))
         cmd_vel.angular.z = float(np.clip(r, -1.0, 1.0))
         #publish 
         self.odom_pub_1.publish(cmd_vel) 
@@ -106,8 +105,6 @@ class ControlNode(Node):
         self.last_time = now
 
     def callback_odom_2(self, msg:Odometry):
-
-        self.update_leader_position()
 
         follower_x = msg.pose.pose.position.x
         follower_y = msg.pose.pose.position.y
@@ -146,7 +143,7 @@ class ControlNode(Node):
         #ép kiểu tin nhắn cho publisher
         cmd_vel = Twist()
         #setup vận tốc+vận tốc góc cho robot
-        cmd_vel.linear.x = float(np.clip(u, -0.3, 0.3))
+        cmd_vel.linear.x = float(np.clip(u, -0.2, 0.2))
         cmd_vel.angular.z = float(np.clip(r, -1.0, 1.0))
         #publish 
         self.odom_pub_2.publish(cmd_vel) 
